@@ -1,4 +1,3 @@
-
 /**
  * @file    race-condition-demo.c
  * @brief   Race condition demonstration using ESP-IDF v6.0.
@@ -17,12 +16,16 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 
 #define TASK_ITERATIONS    (100000U)
 #define TASK_DELAY_MS      (1U)
 
 /* Shared resource */
 static volatile uint32_t g_sharedCounter = 0U;
+
+/* Mutex protecting the shared resource*/
+static SemaphoreHandle_t g_counterMutex =  NULL;
 
 /**
  * @brief Task that increments the shared counter.
@@ -47,9 +50,17 @@ static void CounterTask(void *pvParameters)
          * Context switching between these steps produces
          * the race condition.
          */
+    if (xSemaphoreTake(g_counterMutex, portMAX_DELAY) == pdTRUE)
+    {
         g_sharedCounter++;
 
-        if ((i % 1000U) == 0U)
+        /*
+         *Release the shared resource
+         */
+        (void)xSemaphoreGive(g_counterMutex);
+    }
+
+    if ((i % 1000U) == 0U)
         {
             vTaskDelay(pdMS_TO_TICKS(TASK_DELAY_MS));
         }
@@ -77,6 +88,17 @@ void app_main(void)
      */
     printf("Expected final value: %u\n",
            (TASK_ITERATIONS * 2U));
+
+    /*
+     * Create mutex used to protect the shared counter.
+     */
+    g_counterMutex = xSemaphoreCreateMutex();
+
+    if (g_counterMutex == NULL)
+    {
+        printf("Failed to create mutex\n");
+        return;
+    }
 
     xTaskCreate(
         CounterTask,
